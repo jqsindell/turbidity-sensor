@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Water clarity monitor</title>
+<style>
+:root{--bg:#EDF5F3;--panel:#FFFFFF;--ink:#0E2F36;--mute:#587479;--line:#CFE0DD;--ok:#1B8F80;--warn:#B97A12;--bad:#C0412D;--accent:#0E4B57}
+@media(prefers-color-scheme:dark){:root{--bg:#0A1E23;--panel:#0F2E37;--ink:#E6F3F1;--mute:#8FB1B6;--line:#1E4550;--ok:#3CC7B3;--warn:#E6A93A;--bad:#F06A55;--accent:#7FD0DC}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Avenir Next","Segoe UI",system-ui,sans-serif;line-height:1.45}
+.wrap{max-width:980px;margin:0 auto;padding:24px 20px 48px}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:20px}
+h1{font-size:26px;font-weight:600;margin:0;letter-spacing:-.01em}
+.conn{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--mute)}
+.dot.on{background:var(--ok)}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:9px 16px;border-radius:8px;cursor:pointer}
+button.primary{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:600}
+button:focus-visible,input:focus-visible{outline:3px solid var(--ok);outline-offset:2px}
+.grid{display:grid;grid-template-columns:260px 1fr;gap:20px}
+@media(max-width:720px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+.glass{display:flex;align-items:center;justify-content:center}
+.glass svg{width:100%;max-width:200px;height:auto}
+.status{font-size:44px;font-weight:700;letter-spacing:-.02em;line-height:1.1;margin:0;transition:color .4s}
+.status.clear{color:var(--ok)}.status.warn{color:var(--warn)}.status.bad{color:var(--bad)}
+.volts{font-size:20px;color:var(--mute);margin:6px 0 18px;font-variant-numeric:tabular-nums}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.stat b{display:block;font-size:24px;font-variant-numeric:tabular-nums}
+.stat span{color:var(--mute);font-size:14px}
+.msg{margin:16px 0 0;color:var(--mute);font-size:15px;max-width:60ch}
+.msg.err{color:var(--bad)}
+h2{font-size:17px;font-weight:600;margin:0 0 12px}
+canvas{width:100%;height:220px;display:block}
+.settings{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:720px){.settings{grid-template-columns:1fr}}
+label{display:block;font-size:15px}
+label output{float:right;font-variant-numeric:tabular-nums;font-weight:600}
+input[type=range]{width:100%;margin:8px 0 0}
+.full{margin-top:20px}
+.check{display:flex;gap:8px;align-items:center;margin-top:14px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Water clarity</h1>
+  <div class="conn">
+    <span class="dot" id="dot"></span><span id="connText">Not connected</span>
+    <button class="primary" id="connBtn">Connect board</button>
+    <button id="demoBtn">Try demo</button>
+  </div>
+</header>
+
+<div class="grid">
+  <div class="card glass">
+    <svg viewBox="0 0 180 280" role="img" aria-label="Glass of water that darkens as the water gets cloudier">
+      <defs>
+        <clipPath id="inside"><path d="M30 20 L30 240 Q30 262 52 262 L128 262 Q150 262 150 240 L150 20 Z"/></clipPath>
+        <linearGradient id="silt" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a2a12" stop-opacity="0"/><stop offset="1" stop-color="#3a2a12" stop-opacity=".55"/></linearGradient>
+      </defs>
+      <g clip-path="url(#inside)">
+        <rect id="water" x="20" y="80" width="140" height="190" fill="#8FD3E8" fill-opacity=".6" style="transition:fill .6s"/>
+        <rect id="murk" x="20" y="80" width="140" height="190" fill="url(#silt)" opacity="0" style="transition:opacity .6s"/>
+        <rect x="20" y="80" width="140" height="5" fill="#fff" fill-opacity=".35"/>
+      </g>
+      <path d="M30 20 L30 240 Q30 262 52 262 L128 262 Q150 262 150 240 L150 20" fill="none" stroke="var(--ink)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M42 40 L42 200" stroke="var(--ink)" stroke-opacity=".18" stroke-width="4" stroke-linecap="round"/>
+    </svg>
+  </div>
+
+  <div class="card">
+    <p class="status clear" id="status">Waiting</p>
+    <p class="volts"><span id="volts">--</span> V sensor reading</p>
+    <div class="stats">
+      <div class="stat"><b id="ntu">--</b><span>Estimated NTU</span></div>
+      <div class="stat"><b id="min">--</b><span>Lowest V</span></div>
+      <div class="stat"><b id="max">--</b><span>Highest V</span></div>
+    </div>
+    <p class="msg" id="msg">Close the Arduino Serial Monitor, then choose Connect board and pick your board’s port. No board handy? Try the demo.</p>
+  </div>
+</div>
+
+<div class="card full">
+  <h2>Last few minutes</h2>
+  <canvas id="chart"></canvas>
+</div>
+
+<div class="card full">
+  <h2>Alert levels</h2>
+  <div class="settings">
+    <label>Getting cloudy below <output id="warnOut">4.00 V</output>
+      <input type="range" id="warnIn" min="2.5" max="4.4" step="0.05" value="4.0"></label>
+    <label>Cloudy below <output id="badOut">3.80 V</output>
+      <input type="range" id="badIn" min="2.5" max="4.4" step="0.05" value="3.8"></label>
+  </div>
+  <label class="check"><input type="checkbox" id="beep"> Beep when the water turns cloudy</label>
+</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let warnV = 4.0, badV = 3.8, data = [], port = null, reader = null, pipe = null, usb = null, demo = null, lastState = null;
+let vmin = null, vmax = null;
+try { const s = JSON.parse(localStorage.getItem('wcm') || 'null'); if (s) { warnV = s.w; badV = s.b; } } catch (e) {}
+
+function ntu(v) { return v < 2.5 ? 3000 : Math.max(0, -1120.4 * v * v + 5742.3 * v - 4352.9); }
+function stateOf(v) { return v >= warnV ? 'clear' : v >= badV ? 'warn' : 'bad'; }
+const LABEL = { clear: 'Clear', warn: 'Getting cloudy', bad: 'Cloudy' };
+
+function say(text, err) { const m = $('msg'); m.textContent = text; m.className = 'msg' + (err ? ' err' : ''); }
+function setConn(on, text) { $('dot').classList.toggle('on', on); $('connText').textContent = text; $('connBtn').textContent = on ? 'Disconnect' : 'Connect board'; }
+
+function beep() {
+  try {
+    const c = new (window.AudioContext || window.webkitAudioContext)(), o = c.createOscillator(), g = c.createGain();
+    o.frequency.value = 660; g.gain.value = .15; o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + .35);
+  } catch (e) {}
+}
+
+function update(v) {
+  data.push(v); if (data.length > 150) data.shift();
+  vmin = vmin === null ? v : Math.min(vmin, v); vmax = vmax === null ? v : Math.max(vmax, v);
+  const st = stateOf(v);
+  $('status').textContent = LABEL[st]; $('status').className = 'status ' + st;
+  $('volts').textContent = v.toFixed(2);
+  $('ntu').textContent = Math.round(ntu(v));
+  $('min').textContent = vmin.toFixed(2); $('max').textContent = vmax.toFixed(2);
+  const t = Math.min(1, Math.max(0, (4.2 - v) / 1.7));
+  const mix = (a, b) => Math.round(a + (b - a) * t);
+  $('water').setAttribute('fill', `rgb(${mix(143, 122)},${mix(211, 92)},${mix(232, 48)})`);
+  $('water').setAttribute('fill-opacity', (0.6 + 0.4 * t).toFixed(2));
+  $('murk').setAttribute('opacity', t.toFixed(2));
+  if (st === 'bad' && lastState !== 'bad' && $('beep').checked) beep();
+  lastState = st;
+  draw();
+}
+
+function handleLine(line) {
+  const m = line.match(/(\d+(?:\.\d+)?)\s*V\b/i);
+  if (!m) return;
+  const v = parseFloat(m[1]);
+  if (v >= 0 && v <= 5.5) update(v);
+}
+
+function draw() {
+  const cv = $('chart'), r = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = w * r; cv.height = h * r;
+  const x = cv.getContext('2d'); x.scale(r, r);
+  const css = getComputedStyle(document.documentElement), col = n => css.getPropertyValue(n).trim();
+  const lo = 2.5, hi = 4.5, py = v => h - 24 - (Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo) * (h - 36);
+  x.font = '12px system-ui,sans-serif'; x.textBaseline = 'middle';
+  [[warnV, col('--warn')], [badV, col('--bad')]].forEach(([v, c]) => {
+    x.strokeStyle = c; x.setLineDash([5, 5]); x.lineWidth = 1;
+    x.beginPath(); x.moveTo(40, py(v)); x.lineTo(w, py(v)); x.stroke();
+    x.setLineDash([]); x.fillStyle = c; x.fillText(v.toFixed(2), 2, py(v));
+  });
+  if (data.length < 2) { x.fillStyle = col('--mute'); x.fillText('Readings will draw here.', 52, h / 2); return; }
+  x.strokeStyle = col('--accent'); x.lineWidth = 2.5; x.lineJoin = 'round'; x.beginPath();
+  data.forEach((v, i) => { const X = 40 + i / 149 * (w - 44); i ? x.lineTo(X, py(v)) : x.moveTo(X, py(v)); });
+  x.stroke();
+}
+
+async function connect() {
+  if (port || usb) return disconnect();
+  stopDemo();
+  if (!('serial' in navigator)) {
+    if ('usb' in navigator) return connectUsb();
+    say('This browser can’t talk to USB boards. Open this page in Chrome or Edge.', true); return;
+  }
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 9600 });
+  } catch (e) {
+    port = null;
+    say(e.name === 'NotFoundError' ? 'No port was chosen. Choose Connect board and select your board.' : 'Couldn’t open the port. Close the Arduino Serial Monitor and try again.', true);
+    return;
+  }
+  setConn(true, 'Connected'); say('Listening for readings. If nothing appears, check that your board is printing a line like “4.10 V” at 9600 baud.');
+  const dec = new TextDecoderStream();
+  pipe = port.readable.pipeTo(dec.writable).catch(() => {});
+  reader = dec.readable.getReader();
+  let buf = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value; const parts = buf.split(/\r?\n/); buf = parts.pop(); parts.forEach(handleLine);
+    }
+  } catch (e) { say('The board was unplugged or the connection dropped. Plug it back in and choose Connect board.', true); }
+  await disconnect(true);
+}
+
+// Web Serial stand-in for browsers that only have WebUSB (Chrome on Android).
+// Talks to boards that show up as a standard USB serial (CDC-ACM) device, like Arduino Uno R3.
+function usbError(e) {
+  if (e.message === 'unsupported') return 'This board’s USB chip needs a driver this page doesn’t have (common with CH340 or FTDI chips). A genuine Arduino Uno or Leonardo-style board works.';
+  if (e.name === 'NotFoundError') return 'No device was chosen. Choose Connect board and select your board.';
+  if (e.name === 'SecurityError') return 'Android blocked USB access. The page must be opened from an https address, and some tablets lock out serial boards.';
+  return 'Android couldn’t open the board. Unplug it, plug it back in, and try again.';
+}
+
+async function connectUsb() {
+  let dev = null, me = null;
+  try {
+    dev = await navigator.usb.requestDevice({ filters: [] });
+    await dev.open();
+    if (dev.configuration === null) await dev.selectConfiguration(1);
+    let ctrl = null, data = null, inEp = null;
+    for (const i of dev.configuration.interfaces) for (const a of i.alternates) {
+      if (a.interfaceClass === 0x02 && ctrl === null) ctrl = i.interfaceNumber;
+      if (a.interfaceClass === 0x0A) {
+        data = i.interfaceNumber;
+        for (const e of a.endpoints) if (e.type === 'bulk' && e.direction === 'in') inEp = e.endpointNumber;
+      }
+    }
+    if (data === null || inEp === null) throw new Error('unsupported');
+    if (ctrl !== null) await dev.claimInterface(ctrl);
+    await dev.claimInterface(data);
+    if (ctrl !== null) {
+      const t = { requestType: 'class', recipient: 'interface', index: ctrl };
+      await dev.controlTransferOut({ ...t, request: 0x20, value: 0 }, new Uint8Array([0x80, 0x25, 0, 0, 0, 0, 8])); // 9600 baud, 8N1
+      await dev.controlTransferOut({ ...t, request: 0x22, value: 0x01 }); // DTR on
+    }
+    me = usb = { dev, run: true };
+    setConn(true, 'Connected (USB)');
+    say('Listening for readings. If nothing appears, check that your board is printing a line like “4.10 V” at 9600 baud.');
+    const dec = new TextDecoder(); let buf = '';
+    while (me.run) {
+      const r = await dev.transferIn(inEp, 64);
+      if (r.status === 'ok' && r.data) {
+        buf += dec.decode(r.data, { stream: true });
+        const parts = buf.split(/\r?\n/); buf = parts.pop(); parts.forEach(handleLine);
+      }
+    }
+  } catch (e) {
+    if (!me || me.run) say(usbError(e), true);
+  }
+  if (me && usb === me) await disconnect(true);
+  else if (!me && dev) { try { await dev.close(); } catch (e) {} }
+}
+
+async function disconnect(quiet) {
+  if (usb) {
+    const u = usb; usb = null; u.run = false;
+    try { await u.dev.close(); } catch (e) {}
+    setConn(false, 'Not connected');
+    if (quiet !== true) say('Disconnected.');
+    return;
+  }
+  const p = port; port = null;
+  try { if (reader) await reader.cancel(); } catch (e) {}
+  try { if (pipe) await pipe; } catch (e) {}
+  try { if (p) await p.close(); } catch (e) {}
+  reader = null; pipe = null;
+  setConn(false, 'Not connected');
+  if (quiet !== true) say('Disconnected.');
+}
+
+function stopDemo() { if (demo) { clearInterval(demo); demo = null; $('demoBtn').textContent = 'Try demo'; } }
+function toggleDemo() {
+  if (demo) { stopDemo(); setConn(false, 'Not connected'); return; }
+  if (port) return;
+  let t = 0; $('demoBtn').textContent = 'Stop demo'; setConn(true, 'Demo data');
+  say('Showing made-up readings so you can see how the app looks.');
+  demo = setInterval(() => { t += .08; update(3.7 + .45 * Math.sin(t) + (Math.random() - .5) * .05); }, 400);
+}
+
+function sync() {
+  $('warnOut').textContent = warnV.toFixed(2) + ' V'; $('badOut').textContent = badV.toFixed(2) + ' V';
+  $('warnIn').value = warnV; $('badIn').value = badV;
+  try { localStorage.setItem('wcm', JSON.stringify({ w: warnV, b: badV })); } catch (e) {}
+  if (data.length) update(data.pop()); else draw();
+}
+$('warnIn').addEventListener('input', e => { warnV = parseFloat(e.target.value); if (badV >= warnV) badV = Math.round((warnV - .05) * 100) / 100; sync(); });
+$('badIn').addEventListener('input', e => { badV = parseFloat(e.target.value); if (warnV <= badV) warnV = Math.round((badV + .05) * 100) / 100; sync(); });
+$('connBtn').addEventListener('click', connect);
+$('demoBtn').addEventListener('click', toggleDemo);
+window.addEventListener('resize', draw);
+sync();
+</script>
+</body>
+</html>
